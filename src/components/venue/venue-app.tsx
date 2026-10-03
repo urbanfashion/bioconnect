@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import {
   Calendar,
+  List,
   Map,
   MessageSquare,
   Newspaper,
@@ -32,6 +33,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MeetingBanner, VenueDirectory } from "@/components/venue/directory";
+import { VenueListView } from "@/components/venue/venue-list-view";
 import { TableRoom } from "@/components/venue/table-room";
 import { Portrait } from "@/components/venue/portrait";
 import { LotWorld } from "@/components/world/lot-world";
@@ -60,6 +62,8 @@ export function VenueApp() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [tab, setTab] = useState<Tab>("world");
+  const [floorView, setFloorView] = useState<"auto" | "map" | "list">("auto");
+  const swipe = useRef<{ x: number; y: number } | null>(null);
   const [openRoom, setOpenRoom] = useState<RoomId | null>(null);
   const [near, setNear] = useState<string | null>(null);
   const [posts, setPosts] = useState<Post[]>(SEEDED_POSTS);
@@ -120,16 +124,22 @@ export function VenueApp() {
     setOpenRoom(null);
   };
 
-  const enterRoom = async (room: RoomId) => {
-    if (!me) return;
+  const walkTo = async (room: RoomId) => {
+    if (!me) return false;
     const res = await moveToRoom({ data: { attendeeId: me, room } });
     if (res && "error" in res && res.error) {
       toast.error(res.error);
-      return;
+      return false;
     }
+    await refresh(me);
+    return true;
+  };
+
+  const enterRoom = async (room: RoomId) => {
+    const ok = await walkTo(room);
+    if (!ok) return;
     setOpenRoom(room);
     setTab("venue");
-    await refresh(me);
   };
 
   if (!hydrated) return <div className="min-h-dvh bg-bg" />;
@@ -194,36 +204,88 @@ export function VenueApp() {
 
           <div className="flex min-h-0 flex-1 flex-col pb-16 md:pb-0">
             {tab === "world" && (
-              <div className="relative min-h-0 flex-1">
-                <LotWorld
-                  me={me}
-                  attendees={state.attendees}
-                  onApproach={setNear}
-                  onRoom={(room) => {
-                    void moveToRoom({ data: { attendeeId: me, room } }).then(() => refresh(me));
-                  }}
-                />
-                <p className="pointer-events-none absolute top-3 left-3 rounded-lg bg-panel/90 px-3 py-2 text-xs text-muted">
-                  Tap the floor to walk. WASD moves you. Walk up to someone to see who they are.
-                </p>
-                {near && near !== me && (
+              <div
+                className="floor-shell relative min-h-0 flex-1"
+                data-floor={floorView}
+                onTouchStart={(e) => {
+                  const t = e.changedTouches[0];
+                  if (!t) return;
+                  swipe.current = { x: t.clientX, y: t.clientY };
+                }}
+                onTouchEnd={(e) => {
+                  const start = swipe.current;
+                  swipe.current = null;
+                  const t = e.changedTouches[0];
+                  if (!start || !t) return;
+                  const dx = t.clientX - start.x;
+                  const dy = t.clientY - start.y;
+                  if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+                  setFloorView(dx < 0 ? "list" : "map");
+                }}
+              >
+                <div className="floor-pane floor-map absolute inset-0">
+                  <LotWorld
+                    me={me}
+                    attendees={state.attendees}
+                    onApproach={setNear}
+                    onRoom={(room) => {
+                      void moveToRoom({ data: { attendeeId: me, room } }).then(() => refresh(me));
+                    }}
+                  />
+                  <p className="floor-hint pointer-events-none absolute top-3 left-3 max-w-[16rem] rounded-lg bg-panel/90 px-3 py-2 text-xs text-muted">
+                    Tap the floor to walk. WASD moves you. Walk up to someone to see who they are.
+                  </p>
+                  {near && near !== me && (
+                    <button
+                      type="button"
+                      onClick={() => setPicked(near)}
+                      className="floor-near absolute right-3 bottom-3 left-3 flex items-center justify-between gap-3 rounded-xl border border-gold-dim bg-panel px-3 py-3 text-left md:left-auto md:w-80"
+                    >
+                      <span>
+                        <span className="block text-sm font-medium">
+                          {state.attendees.find((a) => a.id === near)?.name}
+                        </span>
+                        <span className="block text-xs text-muted">
+                          {state.attendees.find((a) => a.id === near)?.title} ·{" "}
+                          {state.attendees.find((a) => a.id === near)?.company}
+                        </span>
+                      </span>
+                      <span className="text-sm text-gold">View</span>
+                    </button>
+                  )}
+                </div>
+                <div className="floor-pane floor-list absolute inset-0">
+                  <VenueListView
+                    me={me}
+                    attendees={state.attendees}
+                    presence={state.presence}
+                    myRoom={state.presence.find((p) => p.attendeeId === me)?.room ?? null}
+                    privateOpen={state.meetings.some((m) => m.status === "confirmed")}
+                    dealOpen={state.deals.some(
+                      (d) => d.status === "open" && (d.fromId === me || d.toId === me),
+                    )}
+                    onEnter={(room) => void walkTo(room)}
+                    onPick={setPicked}
+                  />
+                </div>
+                <div className="absolute top-3 right-3 z-20 flex rounded-full border border-line bg-panel/95 p-1 shadow-lg backdrop-blur-md">
                   <button
                     type="button"
-                    onClick={() => setPicked(near)}
-                    className="absolute right-3 bottom-3 left-3 flex items-center justify-between gap-3 rounded-xl border border-gold-dim bg-panel px-3 py-3 text-left md:left-auto md:w-80"
+                    onClick={() => setFloorView("map")}
+                    className="floor-toggle-map inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs text-muted"
                   >
-                    <span>
-                      <span className="block text-sm font-medium">
-                        {state.attendees.find((a) => a.id === near)?.name}
-                      </span>
-                      <span className="block text-xs text-muted">
-                        {state.attendees.find((a) => a.id === near)?.title} ·{" "}
-                        {state.attendees.find((a) => a.id === near)?.company}
-                      </span>
-                    </span>
-                    <span className="text-sm text-gold">View</span>
+                    <Map className="size-3.5" />
+                    Map
                   </button>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setFloorView("list")}
+                    className="floor-toggle-list inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs text-muted"
+                  >
+                    <List className="size-3.5" />
+                    List
+                  </button>
+                </div>
               </div>
             )}
 

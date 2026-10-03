@@ -61,3 +61,75 @@
     linear-gradient(90deg, color-mix(in oklab, var(--color-fg) 6%, transparent) 1px, transparent 1px);
   background-size: 28px 28px;
 }
+
+.floor-pane {
+  transition: opacity 280ms ease, transform 280ms ease;
+}
+
+.floor-shell[data-floor="map"] .floor-list,
+.floor-shell[data-floor="auto"] .floor-list,
+.floor-shell[data-floor="list"] .floor-map {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.floor-shell[data-floor="list"] .floor-map {
+  transform: translateX(-12px);
+}
+
+.floor-shell[data-floor="map"] .floor-list,
+.floor-shell[data-floor="auto"] .floor-list {
+  transform: translateX(12px);
+}
+
+.floor-shell[data-floor="list"] .floor-hint,
+.floor-shell[data-floor="list"] .floor-near {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .floor-shell[data-floor="auto"] .floor-map {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-12px);
+  }
+
+  .floor-shell[data-floor="auto"] .floor-list {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .floor-shell[data-floor="auto"] .floor-hint,
+  .floor-shell[data-floor="auto"] .floor-near {
+    display: none;
+  }
+
+  .floor-shell[data-floor="auto"] .floor-toggle-list {
+    background: var(--color-gold);
+    color: var(--color-gold-fg);
+  }
+}
+
+@media (min-width: 768px) {
+  .floor-shell[data-floor="auto"] .floor-map {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .floor-shell[data-floor="auto"] .floor-toggle-map {
+    background: var(--color-gold);
+    color: var(--color-gold-fg);
+  }
+}
+
+.floor-shell[data-floor="list"] .floor-toggle-list,
+.floor-shell[data-floor="map"] .floor-toggle-map {
+  background: var(--color-gold);
+  color: var(--color-gold-fg);
+}
