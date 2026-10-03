@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import {
   Calendar,
+  ChevronRight,
   List,
   Map,
   MessageSquare,
@@ -34,9 +35,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MeetingBanner, VenueDirectory } from "@/components/venue/directory";
 import { VenueListView } from "@/components/venue/venue-list-view";
+import { AttendeeSidebar } from "@/components/venue/attendee-sidebar";
 import { TableRoom } from "@/components/venue/table-room";
 import { Portrait } from "@/components/venue/portrait";
-import { LotWorld } from "@/components/world/lot-world";
+import { LotWorld, type LotWorldHandle } from "@/components/world/lot-world";
 import { FeedPane, NetworkPane, ProfileActions } from "@/components/social/feed-network";
 import { loadNetwork, saveNetwork, SEEDED_POSTS, type Post } from "@/lib/social";
 import { cn } from "@/lib/utils";
@@ -63,7 +65,9 @@ export function VenueApp() {
   const [draft, setDraft] = useState("");
   const [tab, setTab] = useState<Tab>("world");
   const [floorView, setFloorView] = useState<"auto" | "map" | "list">("auto");
+  const [peopleMode, setPeopleMode] = useState<"auto" | "open" | "closed">("auto");
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  const lotRef = useRef<LotWorldHandle>(null);
   const [openRoom, setOpenRoom] = useState<RoomId | null>(null);
   const [near, setNear] = useState<string | null>(null);
   const [posts, setPosts] = useState<Post[]>(SEEDED_POSTS);
@@ -204,8 +208,9 @@ export function VenueApp() {
 
           <div className="flex min-h-0 flex-1 flex-col pb-16 md:pb-0">
             {tab === "world" && (
+              <div className="world-row relative flex min-h-0 flex-1" data-people={peopleMode}>
               <div
-                className="floor-shell relative min-h-0 flex-1"
+                className="floor-shell relative min-h-0 min-w-0 flex-1"
                 data-floor={floorView}
                 onTouchStart={(e) => {
                   const t = e.changedTouches[0];
@@ -225,6 +230,7 @@ export function VenueApp() {
               >
                 <div className="floor-pane floor-map absolute inset-0">
                   <LotWorld
+                    ref={lotRef}
                     me={me}
                     attendees={state.attendees}
                     onApproach={setNear}
@@ -286,6 +292,32 @@ export function VenueApp() {
                     List
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const narrow = window.matchMedia("(max-width: 767px)").matches;
+                    setPeopleMode((current) => {
+                      const open = current === "open" || (current === "auto" && !narrow);
+                      return open ? "closed" : "open";
+                    });
+                  }}
+                  aria-label="Toggle attendees"
+                  className="people-toggle absolute top-14 right-3 z-20 grid size-10 place-items-center rounded-full border border-line bg-panel text-gold shadow-lg md:top-1/2 md:-translate-y-1/2"
+                >
+                  <ChevronRight className="people-chevron size-4" />
+                </button>
+              </div>
+              <AttendeeSidebar
+                me={me}
+                attendees={state.attendees}
+                presence={state.presence}
+                onPick={setPicked}
+                onFind={(id) => {
+                  setFloorView("map");
+                  lotRef.current?.focusOn(id);
+                }}
+                onClose={() => setPeopleMode("closed")}
+              />
               </div>
             )}
 

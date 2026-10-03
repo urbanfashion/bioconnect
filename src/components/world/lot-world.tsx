@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { RoomId } from "@/lib/attendees";
 import type { VenueAttendee } from "@/lib/venue.functions";
 
@@ -84,24 +84,33 @@ function wishDir(keys: Set<string>) {
   return { x: wx / wlen, y: wy / wlen, sx: nx, sy: ny };
 }
 
-export function LotWorld({
-  me,
-  attendees,
-  onApproach,
-  onRoom,
-}: {
-  me: string;
-  attendees: VenueAttendee[];
-  onApproach: (id: string | null) => void;
-  onRoom: (room: RoomId) => void;
-}) {
+export type LotWorldHandle = {
+  focusOn: (id: string) => void;
+};
+
+export const LotWorld = forwardRef<
+  LotWorldHandle,
+  {
+    me: string;
+    attendees: VenueAttendee[];
+    onApproach: (id: string | null) => void;
+    onRoom: (room: RoomId) => void;
+  }
+>(function LotWorld({ me, attendees, onApproach, onRoom }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const attendeesRef = useRef(attendees);
   attendeesRef.current = attendees;
   const onApproachRef = useRef(onApproach);
   const onRoomRef = useRef(onRoom);
+  const focusRef = useRef<string | null>(null);
   onApproachRef.current = onApproach;
   onRoomRef.current = onRoom;
+
+  useImperativeHandle(ref, () => ({
+    focusOn(id: string) {
+      focusRef.current = id;
+    },
+  }));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -245,8 +254,13 @@ export function LotWorld({
         npc.bob += dt * 3;
       }
 
-      camX += (self.x - camX) * Math.min(1, dt * 4);
-      camY += (self.y - camY) * Math.min(1, dt * 4);
+      const focusId = focusRef.current;
+      if ((wish || pointer) && focusId) focusRef.current = null;
+      const look = focusRef.current ? actors.get(focusRef.current) : null;
+      const aim = look ?? self;
+      const follow = look ? 2.2 : 4;
+      camX += (aim.x - camX) * Math.min(1, dt * follow);
+      camY += (aim.y - camY) * Math.min(1, dt * follow);
 
       const zone = zoneAt(self.x, self.y);
       const room = zone?.id ?? "lobby";
@@ -344,6 +358,13 @@ export function LotWorld({
         ctx.font = "bold 8px DM Sans, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(person.initials, p.sx, sy - 27);
+        if (actor.id === focusRef.current) {
+          ctx.strokeStyle = "#c4a35a";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(p.sx, sy - 30, 13, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         const self = actor.id === me;
         const dist = Math.hypot(actor.x - ensure(me).x, actor.y - ensure(me).y);
         if (self || dist < 3.2) {
@@ -393,7 +414,7 @@ export function LotWorld({
       aria-label="Venue floor. Tap to walk, or use WASD."
     />
   );
-}
+});
 
 function tryMove(actor: Actor, dx: number, dy: number) {
   const nx = actor.x + dx;
