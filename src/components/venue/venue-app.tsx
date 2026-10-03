@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import {
   Calendar,
-  ChevronRight,
   List,
   Map,
+  Menu,
   MessageSquare,
   Newspaper,
   Search,
   User,
   Users,
+  X,
 } from "lucide-react";
 import { DEAL_STAGES, firstName, SLOTS, type RoomId } from "@/lib/attendees";
 import { countLabel } from "@/lib/format";
@@ -33,18 +34,19 @@ import {
 } from "@/lib/venue.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MeetingBanner, VenueDirectory } from "@/components/venue/directory";
+import { MeetingBanner } from "@/components/venue/directory";
 import { VenueListView } from "@/components/venue/venue-list-view";
 import { AttendeeSidebar } from "@/components/venue/attendee-sidebar";
+import { Dock, MyCard, Overlay } from "@/components/venue/shell";
 import { TableRoom } from "@/components/venue/table-room";
 import { Portrait } from "@/components/venue/portrait";
 import { LotWorld, type LotWorldHandle } from "@/components/world/lot-world";
-import { FeedPane, NetworkPane, ProfileActions } from "@/components/social/feed-network";
+import { FeedPane, ProfileActions } from "@/components/social/feed-network";
 import { loadNetwork, saveNetwork, SEEDED_POSTS, type Post } from "@/lib/social";
 import { cn } from "@/lib/utils";
 
 const PERSONA_KEY = "bioconnect-persona";
-type Tab = "world" | "venue" | "feed" | "network" | "people" | "agenda" | "messages" | "me";
+type Panel = "people" | "buzz" | "meet" | "card" | "messages" | null;
 
 const empty: VenueState = {
   attendees: [],
@@ -61,11 +63,10 @@ export function VenueApp() {
   const [state, setState] = useState<VenueState>(empty);
   const [picked, setPicked] = useState<string | null>(null);
   const [askSlots, setAskSlots] = useState(false);
-  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
-  const [tab, setTab] = useState<Tab>("world");
-  const [floorView, setFloorView] = useState<"auto" | "map" | "list">("auto");
-  const [peopleMode, setPeopleMode] = useState<"auto" | "open" | "closed">("auto");
+  const [floorView, setFloorView] = useState<"auto" | "map" | "list">("map");
+  const [panel, setPanel] = useState<Panel>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const lotRef = useRef<LotWorldHandle>(null);
   const [openRoom, setOpenRoom] = useState<RoomId | null>(null);
@@ -116,7 +117,7 @@ export function VenueApp() {
     window.localStorage.setItem(PERSONA_KEY, id);
     setMe(id);
     setNet(loadNetwork(id));
-    setTab("world");
+    setPanel(null);
     await heartbeat({ data: { attendeeId: id } });
     await refresh(id);
   };
@@ -126,6 +127,8 @@ export function VenueApp() {
     setMe(null);
     setPicked(null);
     setOpenRoom(null);
+    setPanel(null);
+    setMenuOpen(false);
   };
 
   const walkTo = async (room: RoomId) => {
@@ -143,7 +146,51 @@ export function VenueApp() {
     const ok = await walkTo(room);
     if (!ok) return;
     setOpenRoom(room);
-    setTab("venue");
+    setPanel(null);
+  };
+
+  const openDock = (next: Exclude<Panel, null>) => {
+    setMenuOpen(false);
+    const narrow = window.matchMedia("(max-width: 767px)").matches;
+    if (!narrow && (next === "people" || next === "meet")) {
+      document.getElementById(next === "people" ? "dock-people" : "dock-meet")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      setPanel(null);
+      return;
+    }
+    setPanel((current) => (current === next ? null : next));
+  };
+
+  const findPerson = (id: string) => {
+    setFloorView("map");
+    setPanel(null);
+    lotRef.current?.focusOn(id);
+  };
+
+  const acceptMeetingFromAgenda = async (id: string) => {
+    if (!me) return;
+    const res = await acceptMeeting({ data: { meetingId: id, attendeeId: me } });
+    if (res && "error" in res && res.error) toast.error(res.error);
+    else {
+      toast.success("Meeting confirmed · Private Room 04");
+      setOpenRoom("private");
+      setPanel(null);
+    }
+    await refresh(me);
+  };
+
+  const acceptDealFromAgenda = async (id: string) => {
+    if (!me) return;
+    const res = await acceptDeal({ data: { dealId: id, attendeeId: me } });
+    if (res && "error" in res && res.error) toast.error(res.error);
+    else {
+      toast.success("Deal Room unlocked");
+      setOpenRoom("deal");
+      setPanel(null);
+    }
+    await refresh(me);
   };
 
   if (!hydrated) return <div className="min-h-dvh bg-bg" />;
@@ -155,62 +202,83 @@ export function VenueApp() {
         <Gate attendees={state.attendees} onPick={(id) => void enterAs(id)} />
       ) : (
         <>
-          <header className="border-b border-line">
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div>
-                <div className="font-serif text-lg leading-tight">BioConnect</div>
-                <p className="text-xs text-muted">Walk into the room. See who’s there.</p>
+          <header className="relative z-30 flex h-12 shrink-0 items-center justify-between border-b border-line bg-bg/80 px-3 backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              <span className="font-serif text-base leading-none">BioConnect</span>
+              <span className="live-dot" aria-hidden="true" />
+              <span className="text-xs text-muted">Live</span>
+            </div>
+            <button
+              type="button"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+              className="grid size-9 place-items-center rounded-full text-fg"
+            >
+              {menuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
+            </button>
+            {menuOpen && (
+              <div className="absolute top-12 right-3 z-50 w-64 rounded-2xl border border-line bg-panel/90 p-2 text-sm shadow-xl backdrop-blur-md">
+                <p className="px-2 pt-1 text-xs text-gold">
+                  {state.stats.registered} registered · {state.stats.online} online
+                </p>
+                <p className="px-2 pb-2 text-xs text-muted">
+                  {countLabel(state.stats.meetings, "meeting", "meetings")} ·{" "}
+                  {countLabel(state.stats.deals, "Deal Room entry", "Deal Room entries")}
+                </p>
+                <button
+                  type="button"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-panel-2"
+                  onClick={() => {
+                    setFloorView("map");
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Map className="size-4" /> Map
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-panel-2"
+                  onClick={() => {
+                    setFloorView("list");
+                    setMenuOpen(false);
+                  }}
+                >
+                  <List className="size-4" /> Room list
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-panel-2"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPanel("messages");
+                  }}
+                >
+                  <MessageSquare className="size-4" /> Messages
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-10 w-full items-center rounded-lg px-2 text-left text-muted hover:bg-panel-2"
+                  onClick={leavePersona}
+                >
+                  Switch persona
+                </button>
               </div>
-              <nav className="hidden gap-1 md:flex">
-                {(
-                  [
-                    ["world", "World"],
-                    ["feed", "Feed"],
-                    ["network", "Network"],
-                    ["people", "People"],
-                    ["agenda", "Agenda"],
-                    ["messages", "Messages"],
-                    ["me", "Me"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setTab(id)}
-                    className={cn(
-                      "rounded-lg px-3 py-2 text-sm",
-                      tab === id ? "bg-panel-2 text-fg" : "text-muted",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-xs tabular-nums text-gold">
-              <span>{state.stats.registered} registered</span>
-              <span>{state.stats.online} online</span>
-              <span>{countLabel(state.stats.meetings, "meeting", "meetings")}</span>
-              <span>
-                {countLabel(state.stats.conversations, "active conversation", "active conversations")}
-              </span>
-              <span>{countLabel(state.stats.deals, "Deal Room entry", "Deal Room entries")}</span>
-            </div>
+            )}
           </header>
-
-          {tab !== "me" && (
-            <MeetingBanner
-              self={self}
-              state={state}
-              onEnter={() => void enterRoom("private")}
+          {menuOpen && (
+            <button
+              type="button"
+              className="fixed inset-0 z-20 cursor-default"
+              aria-label="Close menu"
+              onClick={() => setMenuOpen(false)}
             />
           )}
-
-          <div className="flex min-h-0 flex-1 flex-col pb-16 md:pb-0">
-            {tab === "world" && (
-              <div className="world-row relative flex min-h-0 flex-1" data-people={peopleMode}>
+          <MeetingBanner self={self} state={state} onEnter={() => void enterRoom("private")} />
+          <div className="flex min-h-0 flex-1">
+            <div className="relative min-h-0 w-full md:w-[65%]">
               <div
-                className="floor-shell relative min-h-0 min-w-0 flex-1"
+                className="floor-shell absolute inset-0"
                 data-floor={floorView}
                 onTouchStart={(e) => {
                   const t = e.changedTouches[0];
@@ -224,8 +292,13 @@ export function VenueApp() {
                   if (!start || !t) return;
                   const dx = t.clientX - start.x;
                   const dy = t.clientY - start.y;
-                  if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
-                  setFloorView(dx < 0 ? "list" : "map");
+                  const shell = e.currentTarget.getBoundingClientRect();
+                  const fromBottom = start.y > shell.bottom - 110;
+                  if (Math.abs(dx) >= 72 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+                    openDock(dx < 0 ? "people" : "buzz");
+                    return;
+                  }
+                  if (fromBottom && dy <= -70 && Math.abs(dy) > Math.abs(dx)) openDock("meet");
                 }}
               >
                 <div className="floor-pane floor-map absolute inset-0">
@@ -245,7 +318,7 @@ export function VenueApp() {
                     <button
                       type="button"
                       onClick={() => setPicked(near)}
-                      className="floor-near absolute right-3 bottom-3 left-3 flex items-center justify-between gap-3 rounded-xl border border-gold-dim bg-panel px-3 py-3 text-left md:left-auto md:w-80"
+                      className="floor-near absolute right-3 bottom-24 left-3 flex items-center justify-between gap-3 rounded-xl border border-gold-dim bg-panel/90 px-3 py-3 text-left backdrop-blur-md md:left-auto md:w-80"
                     >
                       <span>
                         <span className="block text-sm font-medium">
@@ -292,127 +365,123 @@ export function VenueApp() {
                     List
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const narrow = window.matchMedia("(max-width: 767px)").matches;
-                    setPeopleMode((current) => {
-                      const open = current === "open" || (current === "auto" && !narrow);
-                      return open ? "closed" : "open";
-                    });
-                  }}
-                  aria-label="Toggle attendees"
-                  className="people-toggle absolute top-14 right-3 z-20 grid size-10 place-items-center rounded-full border border-line bg-panel text-gold shadow-lg md:top-1/2 md:-translate-y-1/2"
-                >
-                  <ChevronRight className="people-chevron size-4" />
-                </button>
               </div>
+            </div>
+            <aside className="hidden min-h-0 w-[35%] flex-col border-l border-line bg-panel/75 backdrop-blur-md md:flex">
+              <div id="dock-people" className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-line">
+                <AttendeeSidebar
+                  embedded
+                  me={me}
+                  attendees={state.attendees}
+                  presence={state.presence}
+                  onPick={setPicked}
+                  onFind={findPerson}
+                  onClose={() => setPanel(null)}
+                />
+              </div>
+              <div id="dock-meet" className="min-h-0 flex-1 overflow-y-auto">
+                <Agenda
+                  me={me}
+                  self={self}
+                  state={state}
+                  onEnterMeeting={() => void enterRoom("private")}
+                  onEnterDeal={() => void enterRoom("deal")}
+                  onAcceptMeeting={acceptMeetingFromAgenda}
+                  onAcceptDeal={acceptDealFromAgenda}
+                />
+              </div>
+            </aside>
+          </div>
+
+          {panel === "people" && (
+            <Overlay title="People" side="right" mobileOnly onClose={() => setPanel(null)}>
               <AttendeeSidebar
+                embedded
                 me={me}
                 attendees={state.attendees}
                 presence={state.presence}
                 onPick={setPicked}
-                onFind={(id) => {
-                  setFloorView("map");
-                  lotRef.current?.focusOn(id);
-                }}
-                onClose={() => setPeopleMode("closed")}
+                onFind={findPerson}
+                onClose={() => setPanel(null)}
               />
-              </div>
-            )}
-
-            {tab === "feed" && (
+            </Overlay>
+          )}
+          {panel === "buzz" && (
+            <Overlay title="Buzz" side="sheet" onClose={() => setPanel(null)}>
               <FeedPane
                 me={me}
                 attendees={state.attendees}
                 posts={posts}
                 onOpen={setPicked}
                 onPost={(body) =>
-                  setPosts((prev) => [{ id: `local-${Date.now()}`, authorId: me, body, time: "now" }, ...prev])
+                  setPosts((prev) => [
+                    { id: `local-${Date.now()}`, authorId: me, body, time: "now" },
+                    ...prev,
+                  ])
                 }
               />
-            )}
-
-            {tab === "network" && (
-              <NetworkPane
-                me={me}
-                attendees={state.attendees}
-                saved={net.saved}
-                connected={net.connected}
-                onOpen={setPicked}
-              />
-            )}
-
-            {tab === "venue" &&
-              (openRoom ? (
-                <TableRoom
-                  me={me}
-                  room={openRoom}
-                  attendees={state.attendees}
-                  presence={state.presence}
-                  onPick={setPicked}
-                  onLeave={() => {
-                    setOpenRoom(null);
-                    void moveToRoom({ data: { attendeeId: me, room: "lobby" } }).then(() =>
-                      refresh(me),
-                    );
-                  }}
-                  onPeople={() => setTab("people")}
-                  onChat={() => setTab("messages")}
-                />
-              ) : (
-                <VenueDirectory me={me} state={state} onEnter={(r) => void enterRoom(r)} />
-              ))}
-
-            {tab === "people" && (
-              <PeoplePane
-                me={me}
-                query={query}
-                setQuery={setQuery}
-                attendees={state.attendees}
-                presence={state.presence}
-                onPick={setPicked}
-              />
-            )}
-
-            {tab === "agenda" && (
+            </Overlay>
+          )}
+          {panel === "meet" && (
+            <Overlay title="Meet" side="bottom" mobileOnly onClose={() => setPanel(null)}>
               <Agenda
                 me={me}
                 self={self}
                 state={state}
                 onEnterMeeting={() => void enterRoom("private")}
                 onEnterDeal={() => void enterRoom("deal")}
-                onAcceptMeeting={async (id) => {
-                  const res = await acceptMeeting({ data: { meetingId: id, attendeeId: me } });
-                  if (res && "error" in res && res.error) toast.error(res.error);
-                  else {
-                    toast.success("Meeting confirmed · Private Room 04");
-                    setOpenRoom("private");
-                    setTab("venue");
-                  }
-                  await refresh(me);
-                }}
-                onAcceptDeal={async (id) => {
-                  const res = await acceptDeal({ data: { dealId: id, attendeeId: me } });
-                  if (res && "error" in res && res.error) toast.error(res.error);
-                  else {
-                    toast.success("Deal Room unlocked");
-                    setOpenRoom("deal");
-                    setTab("venue");
-                  }
-                  await refresh(me);
+                onAcceptMeeting={acceptMeetingFromAgenda}
+                onAcceptDeal={acceptDealFromAgenda}
+              />
+            </Overlay>
+          )}
+          {panel === "card" && (
+            <Overlay title="My Card" side="right" onClose={() => setPanel(null)}>
+              <MyCard
+                self={self}
+                attendees={state.attendees}
+                saved={net.saved}
+                connected={net.connected}
+                onOpen={setPicked}
+                onSwitch={leavePersona}
+              />
+            </Overlay>
+          )}
+          {panel === "messages" && (
+            <Overlay title="Messages" side="right" onClose={() => setPanel(null)}>
+              <MessagesPane
+                me={me}
+                state={state}
+                onPick={(id) => {
+                  setPicked(id);
                 }}
               />
-            )}
-
-            {tab === "messages" && (
-              <MessagesPane me={me} state={state} onPick={setPicked} />
-            )}
-
-            {tab === "me" && (
-              <MePane self={self} onSwitch={leavePersona} />
-            )}
-          </div>
+            </Overlay>
+          )}
+          {openRoom && (
+            <Overlay
+              title={openRoom === "deal" ? "Deal Room" : "Private meeting"}
+              side="bottom"
+              onClose={() => {
+                setOpenRoom(null);
+                void walkTo("lobby");
+              }}
+            >
+              <TableRoom
+                me={me}
+                room={openRoom}
+                attendees={state.attendees}
+                presence={state.presence}
+                onPick={setPicked}
+                onLeave={() => {
+                  setOpenRoom(null);
+                  void walkTo("lobby");
+                }}
+                onPeople={() => openDock("people")}
+                onChat={() => setPanel("messages")}
+              />
+            </Overlay>
+          )}
 
           {selected && (
             <ProfileDrawer
@@ -444,7 +513,7 @@ export function VenueApp() {
                 });
                 if (res && "error" in res && res.error) toast.error(res.error);
                 else toast.success("Invited to Private Room 04 · Thu 2:15–2:30");
-                setTab("agenda");
+                setPanel("meet");
                 await refresh(me);
               }}
               saved={net.saved.includes(selected.id)}
@@ -475,30 +544,7 @@ export function VenueApp() {
             />
           )}
 
-          <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-line bg-panel md:hidden">
-            {(
-              [
-                ["world", Map, "World"],
-                ["feed", Newspaper, "Feed"],
-                ["network", Users, "Network"],
-                ["agenda", Calendar, "Agenda"],
-                ["me", User, "Me"],
-              ] as const
-            ).map(([id, Icon, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTab(id)}
-                className={cn(
-                  "flex min-h-14 flex-col items-center justify-center gap-1 text-[11px]",
-                  tab === id ? "text-gold" : "text-muted",
-                )}
-              >
-                <Icon className="size-4" />
-                {label}
-              </button>
-            ))}
-          </nav>
+          <Dock panel={panel} onOpen={openDock} />
         </>
       )}
     </div>
@@ -834,9 +880,9 @@ function ProfileDrawer({
   );
 
   return (
-    <div className="fixed inset-0 z-30 flex justify-end bg-bg/60" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex justify-end bg-bg/40 backdrop-blur-sm" onClick={onClose}>
       <aside
-        className="flex h-full w-full max-w-md flex-col overflow-auto border-l border-line bg-panel p-4"
+        className="flex h-full w-full max-w-md flex-col overflow-auto border-l border-line bg-panel/90 p-4 backdrop-blur-md"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">

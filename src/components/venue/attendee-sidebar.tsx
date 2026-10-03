@@ -11,6 +11,7 @@ export function AttendeeSidebar({
   onPick,
   onFind,
   onClose,
+  embedded,
 }: {
   me: string;
   attendees: VenueAttendee[];
@@ -18,6 +19,7 @@ export function AttendeeSidebar({
   onPick: (id: string) => void;
   onFind: (id: string) => void;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
@@ -35,15 +37,20 @@ export function AttendeeSidebar({
   }, [attendees, presence, q]);
 
   return (
-    <aside className="attendee-rail flex h-full min-h-0 flex-col bg-panel" aria-label="Attendees">
+    <aside
+      className={cn("attendee-rail flex h-full min-h-0 flex-col bg-panel", embedded && "embedded")}
+      aria-label="Attendees"
+    >
       <div className="flex h-full min-h-0 w-full flex-col md:w-[300px]">
         <div className="shrink-0 border-b border-line p-3">
-          <div className="mb-2 flex items-center justify-between md:hidden">
-            <h2 className="font-serif text-lg leading-tight">Attendees</h2>
-            <button type="button" onClick={onClose} className="min-h-9 px-2 text-sm text-gold">
-              Close
-            </button>
-          </div>
+          {!embedded && (
+            <div className="mb-2 flex items-center justify-between md:hidden">
+              <h2 className="font-serif text-lg leading-tight">Attendees</h2>
+              <button type="button" onClick={onClose} className="min-h-9 px-2 text-sm text-gold">
+                Close
+              </button>
+            </div>
+          )}
           <label className="relative block">
             <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted" />
             <Input
@@ -108,7 +115,7 @@ export function AttendeeSidebar({
                     onClick={() => onFind(person.id)}
                     className="mr-2 shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-gold hover:border-gold-dim"
                   >
-                    Find
+                    Find on map
                   </button>
                 )}
               </div>
